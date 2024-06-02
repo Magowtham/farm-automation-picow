@@ -13,7 +13,7 @@ wifi_ssid="undefined"
 wifi_password="password"
 wlan=network.WLAN(network.STA_IF)
 
-broker_host="192.168.18.85"
+broker_host="216.239.36.53"
 broker_port=2000
 
 client_id="device1"
@@ -46,23 +46,64 @@ fog_motor_led_pin=Pin(9,Pin.OUT,value=0)
 cooler_motor_led_pin=Pin(10,Pin.OUT,value=0)
 valve_led_pin=Pin(12,Pin.OUT,value=0)
 
+def blink_lights(delay):
+    drip_motor_led_pin.value(1)
+    fog_motor_led_pin.value(1)
+    cooler_motor_led_pin.value(1)
+    valve_led_pin.value(1)
+    time.sleep(delay)
+    drip_motor_led_pin.value(0)
+    fog_motor_led_pin.value(0)
+    cooler_motor_led_pin.value(0)
+    valve_led_pin.value(0)
+    time.sleep(delay)
+    
+
 def handle_broker_disconnect():
     drip_motor_pin.value(0)
     fog_motor_pin.value(0)
     cooler_motor_pin.value(0)
     valve_pin.value(0)
-
+    
 
 def wifi_connect(ssid,password):
-    wlan.disconnect()
-    wlan.active(True)
-    wlan.connect(ssid,password)
-    
-    while wlan.isconnected() == False:
-        print("connecting to WIFI...")
-        time.sleep(2)
         
-    print("connected to WIFI")
+       wlan.disconnect()
+       wlan.active(True)
+       
+       if not wlan.isconnected():
+           print("connecting to wifi")
+           wlan.connect(ssid,password)
+           
+           while not wlan.isconnected():
+               blink_lights(0.25)
+               
+           print("connected to  wifi")
+            
+           blink_lights(5)
+           
+           
+def connect_to_broker():
+    global broker_reconnect_count
+    
+    lights_blink_count=0
+    
+    mqtt_client=MQTTClient(client_id=client_id,server=broker_host,port=broker_port)
+    mqtt_client.set_callback(handle_message)
+    
+    while lights_blink_count < 6:
+        blink_lights(0.5)
+        lights_blink_count+=1
+    
+    mqtt_client.connect()
+    mqtt_client.subscribe(subscribe_topic)
+    print("connected to MQTT broker")
+    broker_reconnect_count=0
+
+    blink_lights(5)
+    return mqtt_client
+
+    
     
 def handle_node(state,pin,led_pin):
     if state:
@@ -142,15 +183,6 @@ def handle_push_button(name):
         
             
         
-def connect_to_broker():
-    global broker_reconnect_count
-    mqtt_client=MQTTClient(client_id=client_id,server=broker_host,port=broker_port)
-    mqtt_client.set_callback(handle_message)
-    mqtt_client.connect()
-    mqtt_client.subscribe(subscribe_topic)
-    print("connected to MQTT broker")
-    broker_reconnect_count=0
-    return mqtt_client
 
 
     
@@ -183,4 +215,3 @@ def main():
     
 if __name__ == "__main__":
     main()
-    
