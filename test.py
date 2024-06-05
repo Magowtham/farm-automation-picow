@@ -1,19 +1,28 @@
 from machine import Pin
+from umqtt.simple import MQTTClient
 import _thread
 import network
 import time
 import utime
 import socket
+import ujson
 
+
+main_max_retry=10
+push_button_last_time=0
+
+#wifi 
 wifi_ssid="undefined"
 wifi_password="password"
-wlan=network.WLAN(network.STA_IF)
-
 wifi_connecting_mode=False
-server_connected=False
-client_socket=socket.socket(socket.AF_INET)
 
-push_button_last_time=0
+#server
+server="192.168.209.85"
+client_id="device1"
+topic="anmaya_iot1.0"
+server_connecting_mode=False
+server_connected=False
+
 
 drip_motor_state=False
 fog_motor_state=False
@@ -43,6 +52,7 @@ def handle_node(state,pin,led_pin):
     else:
         pin.value(1)
         led_pin.value(0)
+        
 
 
 def handle_push_button(name):
@@ -52,7 +62,7 @@ def handle_push_button(name):
     push_button_new_time=utime.ticks_ms()
     
     if (push_button_new_time - push_button_last_time) > 300:
-        
+        print(name)
         try:
             
             if name == "drip-motor":
@@ -76,142 +86,216 @@ def handle_push_button(name):
 
         push_button_last_time=push_button_new_time
         
+
         
-def indicate_wifi_connecting():
-    print("connecting to wifi..")
-    drip_motor_led_pin.value(1)
-    fog_motor_led_pin.value(1)
-    cooler_motor_led_pin.value(1)
-    valve_led_pin.value(1)
+def handle_server_message(topic,message):
+    global drip_motor_state,fog_motor_state,cooler_motor_state,valve_state
+    try:
+        data=ujson.dumps(message)
+        node_name=data["nodeName"]
+        node_state=data["state"]
+        
+        if node_name == "drip-motor":
+            drip_motor_state=node_state
+            handle_node(drip_motor_state,drip_motor_pin,drip_motor_led_pin)
+        elif node_name == "fog-motor":
+            fog_motor_state=node_state
+            handle_node(fog_motor_state,fog_motor_pin,fog_motor_led_pin)
+        elif node_name == "cooler-motor":
+            cooler_motor_state=node_state
+            handle_node(cooler_motor_state,cooler_motor_pin,cooler_motor_led_pin)
+        else:
+            valve_state=node_state
+            handle_node(valve_state,valve_pin,valve_led_pin)
+    except Exception as e:
+        print(e)
+        
     
-    time.sleep(0.1)
-    
-    drip_motor_led_pin.value(0)
-    fog_motor_led_pin.value(0)
-    cooler_motor_led_pin.value(0)
-    valve_led_pin.value(0)
-    
-    time.sleep(0.1)
+        
+        
+def wifi_connection_indicater(connecting_delay,connected_delay):
+    drip_motor_button_pin.irq(handler=None)
+    fog_motor_button_pin.irq(handler=None)
+    cooler_motor_button_pin.irq(handler=None)
+    valve_button_pin.irq(handler=None)
 
-    
-def indicate_wifi_connection():
-    global wifi_connecting_mode
-    
-    print("connected to wifi")
-    drip_motor_led_pin.value(1)
-    fog_motor_led_pin.value(1)
-    cooler_motor_led_pin.value(1)
-    valve_led_pin.value(1)
-    
-    time.sleep(3)
-    
-    drip_motor_led_pin.value(0)
-    fog_motor_led_pin.value(0)
-    cooler_motor_led_pin.value(0)
-    valve_led_pin.value(0)
-    
-    wifi_connecting_mode=False
-    
-
-def indicate_server_connecting():
-    print("connecting to server..")
-    while not server_connected and not wifi_connecting_mode:
+    while wifi_connecting_mode:
         drip_motor_led_pin.value(1)
         fog_motor_led_pin.value(1)
         cooler_motor_led_pin.value(1)
         valve_led_pin.value(1)
     
-        time.sleep(0.5)
+        time.sleep(connecting_delay)
     
         drip_motor_led_pin.value(0)
         fog_motor_led_pin.value(0)
         cooler_motor_led_pin.value(0)
         valve_led_pin.value(0)
     
-        time.sleep(0.5)
-    print("finished job")
+        time.sleep(connecting_delay)
+    
+    wlan=network.WLAN(network.STA_IF)
+    
+    if wlan.isconnected():
+        drip_motor_led_pin.value(1)
+        fog_motor_led_pin.value(1)
+        cooler_motor_led_pin.value(1)
+        valve_led_pin.value(1)
+    
+        time.sleep(connected_delay)
+    
+        drip_motor_led_pin.value(0)
+        fog_motor_led_pin.value(0)
+        cooler_motor_led_pin.value(0)
+        valve_led_pin.value(0)
+        
+    drip_motor_button_pin.irq(handler=lambda pin:handle_push_button("drip-motor"))
+    fog_motor_button_pin.irq(handler=lambda pin:handle_push_button("fog-motor"))
+    cooler_motor_button_pin.irq(handler=lambda pin:handle_push_button("cooler-motor"))
+    valve_button_pin.irq(handler=lambda pin:handle_push_button("valve"))
+    
+def server_connection_indicater(connecting_delay,connected_delay):
+    drip_motor_button_pin.irq(handler=None)
+    fog_motor_button_pin.irq(handler=None)
+    cooler_motor_button_pin.irq(handler=None)
+    valve_button_pin.irq(handler=None)
 
-def indicate_server_connection():
-    print("connected to server")
+    while server_connecting_mode:
+        drip_motor_led_pin.value(1)
+        fog_motor_led_pin.value(1)
+        cooler_motor_led_pin.value(1)
+        valve_led_pin.value(1)
+    
+        time.sleep(connecting_delay)
+    
+        drip_motor_led_pin.value(0)
+        fog_motor_led_pin.value(0)
+        cooler_motor_led_pin.value(0)
+        valve_led_pin.value(0)
+    
+        time.sleep(connecting_delay)
+    
+    wlan=network.WLAN(network.STA_IF)
+    
+    if server_connected:
+        drip_motor_led_pin.value(1)
+        fog_motor_led_pin.value(1)
+        cooler_motor_led_pin.value(1)
+        valve_led_pin.value(1)
+    
+        time.sleep(connected_delay)
+    
+        drip_motor_led_pin.value(0)
+        fog_motor_led_pin.value(0)
+        cooler_motor_led_pin.value(0)
+        valve_led_pin.value(0)
+        
+    drip_motor_button_pin.irq(handler=lambda pin:handle_push_button("drip-motor"))
+    fog_motor_button_pin.irq(handler=lambda pin:handle_push_button("fog-motor"))
+    cooler_motor_button_pin.irq(handler=lambda pin:handle_push_button("cooler-motor"))
+    valve_button_pin.irq(handler=lambda pin:handle_push_button("valve"))
+    
+    
+def main_error_indicater():
+    print("main error occurred!!")
+    print("please check your wifi provider and server.")
     drip_motor_led_pin.value(1)
     fog_motor_led_pin.value(1)
     cooler_motor_led_pin.value(1)
     valve_led_pin.value(1)
-    
-    time.sleep(3)
-    
-    drip_motor_led_pin.value(0)
-    fog_motor_led_pin.value(0)
-    cooler_motor_led_pin.value(0)
-    valve_led_pin.value(0)
-        
-    
-    
-    
-def wifi_connect(ssid,password):
+
+
+def connect_to_wifi():
     global wifi_connecting_mode
     wifi_connecting_mode=True
-    wlan.disconnect()
-    wlan.active(False)
-    time.sleep(2)
-    wlan.active(True)
+    max_wifi_retry=10
     
-    wlan.connect(ssid,password)
+    _thread.start_new_thread(wifi_connection_indicater,(0.1,3))
     
-    while not wlan.isconnected():
-        indicate_wifi_connecting()
-    
-    indicate_wifi_connection()
-    
-    
-    #_thread.start_new_thread(indicate_server_connecting,())
-    
-def resolve_domain(domain):
-    addr_info = socket.getaddrinfo(domain, 8080)
-    return addr_info[0][-1][0]
-    
-def tcp_connect():
-    global server_connected,client_socket
-    server_ip=resolve_domain("farm-automation-server-whidgluwra-el.a.run.app")
-    print("server_ip :",server_ip)
-    while not server_connected:
-        try:
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect(("farm-automation-server-whidgluwra-el.a.run.app",8080))
-            server_connected=True
-            time.sleep(0.5)
-            indicate_server_connection()
-            
-        except OSError as e:
-            if not wlan.isconnected():
-                wifi_connect(wifi_ssid,wifi_password)
+    while max_wifi_retry > 0:
+        wlan=network.WLAN(network.STA_IF)
+        wlan.disconnect()
+        if not wlan.active():
+            wlan.active(True)
+        print("searching for ssid "+str(wifi_ssid)+"...")
+        scanned_ssid=wlan.scan()
+        
+        for x in scanned_ssid:
+            if wifi_ssid in str(x):
+                wlan.connect(wifi_ssid,wifi_password)
+                print("trying to connect "+str(wifi_ssid))
+                time.sleep(10)
+                break
             else:
-                print(e)
-                time.sleep(3)
-           
-
-
-
-
-
-wifi_connect(wifi_ssid,wifi_password)
+                pass
+        if wlan.isconnected():
+            print("connected")
+            wifi_connecting_mode=False
+            time.sleep(6)
+            return
+        else:
+            print("failed to connect "+str(wifi_ssid))
+            max_wifi_retry-=1
+            
+        time.sleep(1)
+    
+    if not wlan.isconnected():
+        wifi_connecting_mode=False
+        print("maximum retry reached...")
+        print("failed to connect "+str(wifi_ssid))
+        raise Exception("failed to connect wifi")
+        
+        
+def connect_to_server():
+    global server_connecting_mode,server_connected
+    server_connecting_mode=True
+    server_connected=False
+    client=MQTTClient(client_id,server,2000)
+    client.set_callback(handle_server_message)
+    _thread.start_new_thread(server_connection_indicater,(0.5,3))
+    try:
+        client.connect()
+        print("connected to MQTT Broker")
+        client.subscribe(topic)
+        server_connecting_mode=False
+        server_connected=True
+        return client
+    except Exception as e:
+        server_connecting_mode=False
+        server_connected=False
+        raise Exception("failed to connect server")
+        
 
 drip_motor_button_pin.irq(trigger=Pin.IRQ_RISING,handler=lambda pin:handle_push_button("drip-motor"))
 fog_motor_button_pin.irq(trigger=Pin.IRQ_RISING,handler=lambda pin:handle_push_button("fog-motor"))
 cooler_motor_button_pin.irq(trigger=Pin.IRQ_RISING,handler=lambda pin:handle_push_button("cooler-motor"))
 valve_button_pin.irq(trigger=Pin.IRQ_RISING,handler=lambda pin:handle_push_button("valve"))
 
-#tcp_connect()
+def main():
+    global main_max_retry
+    wlan=network.WLAN(network.STA_IF)
+    while main_max_retry > 0:
+        try:
+            connect_to_wifi()
+            #client=connect_to_server()
+            #main_max_retry=10
+            while True:
+                #client.wait_msg()
+                pass
+        except Exception as e:
+            print("server connection failed")
+            
+            time.sleep(2)
+            main_max_retry-=1
+            
+    main_error_indicater()
+        
+main()
+        
 
 
-
-
-while True:
-    #data = client_socket.recv(1024)
-    #print('Received from server:', data)
-    pass
-
-
+        
+              
 
 
 
